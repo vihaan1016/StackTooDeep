@@ -9,11 +9,7 @@ contract ThreadPool {
     using ThreadPoolUtils for uint256;
     using SafeERC20 for IERC20;
 
-    event Swap(
-        address indexed sender,
-        uint256 indexed amountIn,
-        uint256 indexed amountOut
-    );
+    event Swap(address indexed sender, uint256 indexed amountIn, uint256 indexed amountOut);
 
     error ThreadPool__InvalidThreadAddress();
     error ThreadPool__InvalidOutputAmount();
@@ -41,18 +37,92 @@ contract ThreadPool {
         return (s_ethReserve, s_threadReserve);
     }
 
+    function swapEthForThread(uint256 minThreadOut, address _user) external payable {
+        if (msg.value == 0) revert ThreadPool__InvalidInputAmount();
+
+        uint256 ethReserveBefore = s_ethReserve;
+        uint256 threadReserveBefore = s_threadReserve;
+
+        uint256 threadOut = ThreadPoolUtils.getAmountOut(msg.value, ethReserveBefore, threadReserveBefore);
+
+        if (threadOut < minThreadOut) revert ThreadPool__SlippageExceeded();
+        if (threadOut > threadReserveBefore) revert ThreadPool__InsufficientLiquidity();
+
+        i_thread.safeTransfer(_user, threadOut);
+
+        uint256 ethBalanceAfter = address(this).balance;
+        uint256 threadBalanceAfter = i_thread.balanceOf(address(this));
+
+        uint256 ethAmountIn = msg.value;
+        uint256 threadAmountIn = 0;
+
+        uint256 ethBalanceAdjusted = (ethBalanceAfter * 1000) - (ethAmountIn * 3);
+        uint256 threadBalanceAdjusted = (threadBalanceAfter * 1000) - (threadAmountIn * 3);
+
+        if (ethBalanceAdjusted * threadBalanceAdjusted < ethReserveBefore * threadReserveBefore * 1000 ** 2) {
+            revert ThreadPool__InvariantCheckFailed();
+        }
+
+        _updateReserves();
+
+        emit Swap(msg.sender, msg.value, threadOut);
+    }
+
+    function swapThreadForEth(uint256 minEthOut, uint256 threadIn, address to) external {
+        if (minEthOut == 0) revert ThreadPool__InvalidOutputAmount();
+
+        uint256 ethReserveBefore = s_ethReserve;
+        uint256 threadReserveBefore = s_threadReserve;
+
+        uint256 balanceBefore = i_thread.balanceOf(address(this));
+        i_thread.safeTransferFrom(msg.sender, address(this), threadIn);
+        uint256 actualThreadIn = i_thread.balanceOf(address(this)) - balanceBefore;
+
+        if (actualThreadIn == 0) revert ThreadPool__InvalidInputAmount();
+
+        uint256 ethOut = ThreadPoolUtils.getAmountOut(actualThreadIn, threadReserveBefore, ethReserveBefore);
+
+        if (ethOut < minEthOut) revert ThreadPool__SlippageExceeded();
+        if (ethOut > ethReserveBefore) revert ThreadPool__InsufficientLiquidity();
+
+        (bool success,) = to.call{value: ethOut}("");
+        require(success, "ETH_TRANSFER_FAILED");
+
+        uint256 ethBalanceAfter = address(this).balance;
+        uint256 threadBalanceAfter = i_thread.balanceOf(address(this));
+
+        uint256 ethAmountIn = 0;
+        uint256 threadAmountIn = actualThreadIn;
+
+        uint256 ethBalanceAdjusted = (ethBalanceAfter * 1000) - (ethAmountIn * 3);
+        uint256 threadBalanceAdjusted = (threadBalanceAfter * 1000) - (threadAmountIn * 3);
+
+        if (ethBalanceAdjusted * threadBalanceAdjusted < ethReserveBefore * threadReserveBefore * 1000 ** 2) {
+            revert ThreadPool__InvariantCheckFailed();
+        }
+
+        _updateReserves();
+
+        emit Swap(msg.sender, actualThreadIn, ethOut);
+    }
+
+    function getSpotPrice(bool ethToThread) external view returns (uint256) {
+        (uint256 ethReserve, uint256 threadReserve) = getReserves();
+        require(ethReserve > 0 && threadReserve > 0, "No liquidity");
+
+        if (ethToThread) {
+            return (threadReserve * 1e18) / ethReserve;
+        } else {
+            return (ethReserve * 1e18) / threadReserve;
+        }
+    }
+
     function _updateReserves() internal {
         s_ethReserve = address(this).balance;
         s_threadReserve = i_thread.balanceOf(address(this));
     }
 
-    receive() external payable {
-        _updateReserves();
-    }
-
-    function addLiquidity(
-        uint256 minThreadIn
-    ) external payable returns (uint256 liquidityMinted) {
+    function addLiquidity(uint256 minThreadIn) external payable returns (uint256 liquidityMinted) {
         if (msg.value == 0) {
             revert ThreadPool__InvalidInputAmount();
         }
@@ -71,11 +141,7 @@ contract ThreadPool {
                 revert ThreadPool__SlippageExceeded();
             }
 
-            i_thread.safeTransferFrom(
-                msg.sender,
-                address(this),
-                requiredThread
-            );
+            i_thread.safeTransferFrom(msg.sender, address(this), requiredThread);
 
             liquidityMinted = (msg.value * s_totalLiquidity) / ethReserve;
         }
@@ -86,9 +152,7 @@ contract ThreadPool {
         _updateReserves();
     }
 
-    function removeLiquidity(
-        uint256 liquidityAmount
-    ) external returns (uint256 ethOut, uint256 threadOut) {
+    function removeLiquidity(uint256 liquidityAmount) external returns (uint256 ethOut, uint256 threadOut) {
         if (liquidityAmount == 0) revert ThreadPool__InvalidInputAmount();
         if (s_liquidityBalance[msg.sender] < liquidityAmount) {
             revert ThreadPool__InsufficientLiquidity();
@@ -101,11 +165,15 @@ contract ThreadPool {
         s_liquidityBalance[msg.sender] -= liquidityAmount;
         s_totalLiquidity -= liquidityAmount;
 
-        (bool success, ) = msg.sender.call{value: ethOut}("");
+        (bool success,) = msg.sender.call{value: ethOut}("");
         require(success, "ETH_TRANSFER_FAILED");
 
         i_thread.safeTransfer(msg.sender, threadOut);
 
+        _updateReserves();
+    }
+
+    receive() external payable {
         _updateReserves();
     }
 }
