@@ -18,7 +18,7 @@ const projectSchema = new mongoose.Schema({
         required: true,
         default: "paper"
     },
-    // Only for allocation model - on-chain session ID
+    // Only for allocation model
     sessionId: {
         type: Number,
         default: null

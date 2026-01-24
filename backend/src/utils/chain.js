@@ -9,7 +9,7 @@ const FLUX_ADDR = process.env.FLUX_TOKEN_ADDRESS
 const PROTOCOL_ADDR = process.env.AI_PAYMENT_PROTOCOL_ADDRESS
 const BACKEND_WALLET = process.env.BACKEND_WALLET
 const PRIVATE_KEY = process.env.BACKEND_WALLET_PRIVATE_KEY
-const RATE = 5n
+const RATE = 100n
 
 const publicClient = createPublicClient({ chain: sepolia, transport: http() })
 
@@ -32,8 +32,36 @@ const PROTOCOL_ABI = parseAbi([
     "function getSessionInfo(uint256) view returns (address, uint256, uint256, uint256, uint256, bool)",
     "function topupSessionForUser(uint256, address, uint256) returns (bool)",
     "function closeSession(uint256)",
-    "function getConversion(uint256) view returns (uint256)"
+    "function getConversion(uint256) view returns (uint256)",
+    "function conversionRate() view returns (uint256)",
+    "function setConversionRate(uint256)"
 ])
+
+class Mutex {
+    constructor() {
+        this.queue = [];
+        this.locked = false;
+    }
+
+    async runExclusive(callback) {
+        if (this.locked) {
+            await new Promise(resolve => this.queue.push(resolve));
+        }
+        this.locked = true;
+        try {
+            return await callback();
+        } finally {
+            if (this.queue.length > 0) {
+                const next = this.queue.shift();
+                next();
+            } else {
+                this.locked = false;
+            }
+        }
+    }
+}
+
+const txLock = new Mutex();
 
 function isLive() {
     return !!(FLUX_ADDR && PROTOCOL_ADDR && BACKEND_WALLET && walletClient)
@@ -45,7 +73,11 @@ export function getBackendWallet() {
 
 export function getConversionSync(aiTokens) {
     const t = BigInt(aiTokens)
-    return (t + RATE - 1n) / RATE
+    // 1 FLUX = RATE (100) Tokens
+    // Cost in FLUX = (Tokens / RATE)
+    // Cost in Wei = (Tokens * 10^18) / RATE
+    const decimals = 1000000000000000000n // 1e18
+    return (t * decimals) / RATE
 }
 
 export async function verifyPaymentTx(txHash, expectedAmount, sender) {
@@ -69,36 +101,55 @@ export async function verifyPaymentTx(txHash, expectedAmount, sender) {
 export async function burnFlux(amount) {
     if (!isLive()) return { txHash: `0xmock${Date.now().toString(16)}` }
 
-    const hash = await walletClient.writeContract({
-        address: FLUX_ADDR, abi: FLUX_ABI, functionName: "burn",
-        args: [parseUnits(amount.toString(), 18)]
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: FLUX_ADDR, abi: FLUX_ABI, functionName: "burn",
+            args: [BigInt(amount)]
+        })
+        await publicClient.waitForTransactionReceipt({ hash })
+        return { txHash: hash }
     })
-    await publicClient.waitForTransactionReceipt({ hash })
-    return { txHash: hash }
+}
+
+export async function refundFlux(userAddress, amount) {
+    if (!isLive()) return { txHash: `0xmock${Date.now().toString(16)}` }
+
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: FLUX_ADDR, abi: FLUX_ABI, functionName: "transfer",
+            args: [userAddress, BigInt(amount)]
+        })
+        await publicClient.waitForTransactionReceipt({ hash })
+        return { txHash: hash }
+    })
 }
 
 export async function createSessionForUser(userAddress, authorizedAmount) {
     if (!isLive()) return { sessionId: Date.now() % 10000, txHash: `0xmock${Date.now().toString(16)}` }
 
-    const hash = await walletClient.writeContract({
-        address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "createSessionForUser",
-        args: [userAddress, parseUnits(authorizedAmount.toString(), 18)]
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "createSessionForUser",
+            args: [userAddress, parseUnits(authorizedAmount.toString(), 18)]
+        })
+        const receipt = await publicClient.waitForTransactionReceipt({ hash })
+        const sessionId = parseInt(receipt.logs[0]?.topics[1], 16)
+        return { sessionId, txHash: hash }
     })
-    const receipt = await publicClient.waitForTransactionReceipt({ hash })
-    const sessionId = parseInt(receipt.logs[0]?.topics[1], 16)
-    return { sessionId, txHash: hash }
 }
 
 export async function chargeForUsage(sessionId, aiTokensUsed) {
     const fluxAmount = getConversionSync(aiTokensUsed)
     if (!isLive()) return { txHash: `0xmock${Date.now().toString(16)}`, fluxCharged: fluxAmount }
 
-    const hash = await walletClient.writeContract({
-        address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "chargeForUsage",
-        args: [BigInt(sessionId), parseUnits(aiTokensUsed.toString(), 18)]
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "chargeForUsage",
+            args: [BigInt(sessionId), parseUnits(aiTokensUsed.toString(), 18)]
+        })
+        try { await publicClient.waitForTransactionReceipt({ hash, timeout: 60000 }) } catch { }
+        return { txHash: hash, fluxCharged: fluxAmount }
     })
-    try { await publicClient.waitForTransactionReceipt({ hash, timeout: 60000 }) } catch { }
-    return { txHash: hash, fluxCharged: fluxAmount }
 }
 
 export async function getSessionInfo(sessionId) {
@@ -122,23 +173,51 @@ export async function getSessionInfo(sessionId) {
 export async function topupSessionForUser(sessionId, userAddress, additionalAmount) {
     if (!isLive()) return { txHash: `0xmock${Date.now().toString(16)}` }
 
-    const hash = await walletClient.writeContract({
-        address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "topupSessionForUser",
-        args: [BigInt(sessionId), userAddress, parseUnits(additionalAmount.toString(), 18)]
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "topupSessionForUser",
+            args: [BigInt(sessionId), userAddress, parseUnits(additionalAmount.toString(), 18)]
+        })
+        await publicClient.waitForTransactionReceipt({ hash })
+        return { txHash: hash }
     })
-    await publicClient.waitForTransactionReceipt({ hash })
-    return { txHash: hash }
 }
 
 export async function closeSession(sessionId) {
     if (!isLive()) return { txHash: `0xmock${Date.now().toString(16)}` }
 
-    const hash = await walletClient.writeContract({
-        address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "closeSession",
-        args: [BigInt(sessionId)]
+    return txLock.runExclusive(async () => {
+        const hash = await walletClient.writeContract({
+            address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "closeSession",
+            args: [BigInt(sessionId)]
+        })
+        await publicClient.waitForTransactionReceipt({ hash })
+        return { txHash: hash }
     })
-    await publicClient.waitForTransactionReceipt({ hash })
-    return { txHash: hash }
+}
+
+export async function ensureConversionRate() {
+    if (!isLive()) return
+    // Lock to prevent race conditions during startup if called multiple times
+    try {
+        const currentRate = await publicClient.readContract({
+            address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "conversionRate"
+        })
+
+        if (currentRate !== RATE) {
+            console.log(`Syncing Conversion Rate: ${currentRate} -> ${RATE}`)
+            await txLock.runExclusive(async () => {
+                const hash = await walletClient.writeContract({
+                    address: PROTOCOL_ADDR, abi: PROTOCOL_ABI, functionName: "setConversionRate",
+                    args: [RATE]
+                })
+                await publicClient.waitForTransactionReceipt({ hash })
+                console.log("Conversion Rate Synced.")
+            })
+        }
+    } catch (e) {
+        console.error("Failed to sync conversion rate:", e)
+    }
 }
 
 export async function getConversion(aiTokens) {
