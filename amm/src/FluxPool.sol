@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {FluxPoolUtils} from "./FluxPoolUtils.sol"; 
+import {FluxPoolUtils} from "./FluxPoolUtils.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract FluxPool {
@@ -46,7 +46,9 @@ contract FluxPool {
         uint256 fluxOut = FluxPoolUtils.getAmountOut(msg.value, ethReserveBefore, fluxReserveBefore);
 
         if (fluxOut < minFluxOut) revert FluxPool__SlippageExceeded();
-        if (fluxOut > fluxReserveBefore) revert FluxPool__InsufficientLiquidity();
+        if (fluxOut > fluxReserveBefore) {
+            revert FluxPool__InsufficientLiquidity();
+        }
 
         i_flux.safeTransfer(_user, fluxOut);
 

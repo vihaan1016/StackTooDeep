@@ -15,7 +15,7 @@ library FluxPoolUtils {
         }
 
         uint256 amountInWithFees = amountIn * 997;
-        uint256 numerator = (amountInWithFees * reserveOut * 1000);
+        uint256 numerator = (amountInWithFees * reserveOut);
         uint256 denominator = (reserveIn * 1000 + amountInWithFees);
         uint256 amountOut = numerator / denominator;
 
