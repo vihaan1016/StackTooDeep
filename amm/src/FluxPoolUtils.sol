@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-library ThreadPoolUtils {
+library FluxPoolUtils {
     error Utils__InsufficientReserve();
     error Utils__InsufficientInput();
     error Utils__InsufficientOutput();
@@ -50,4 +50,3 @@ library ThreadPoolUtils {
         }
     }
 }
-
