@@ -71,6 +71,13 @@ BACKEND_WALLET=0x3a57622F51356fB925081A6D048BAA3eC35D9bAe
 BACKEND_WALLET_PRIVATE_KEY=d8dfd0f29eb7b26bf3171d3bbee542f6702310e821da825847177efdec256eb8
 ```
 
+### Smart Contract Deployments (Sepolia Testnet)
+
+View the deployed contracts on Etherscan:
+
+- **AI Payment Protocol**: [0x4A8B4AE5f4Af3b895b0B28117E4dA424CF96EF28](https://sepolia.etherscan.io/address/0x4A8B4AE5f4Af3b895b0B28117E4dA424CF96EF28)
+- **Backend Wallet**: [0x3a57622F51356fB925081A6D048BAA3eC35D9bAe](https://sepolia.etherscan.io/address/0x3a57622F51356fB925081A6D048BAA3eC35D9bAe)
+
 ### Running the Application
 
 **Backend (Terminal 1):**
