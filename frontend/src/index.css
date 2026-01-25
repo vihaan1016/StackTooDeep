@@ -1,0 +1,250 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Flux Compute Design System - "Ethereal Industrialism" */
+/* Dark, minimalist, glassmorphic with pastel accents */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    /* Canvas - The Void */
+    --background: 240 10% 1.5%;
+    --background-surface: 240 8% 4%;
+    --foreground: 0 0% 93%;
+
+    /* The Glass */
+    --card: 0 0% 100% / 0.03;
+    --card-foreground: 0 0% 93%;
+    --glass-stroke: 0 0% 100% / 0.08;
+    --glass-hover: 0 0% 100% / 0.12;
+
+    --popover: 240 8% 6%;
+    --popover-foreground: 0 0% 93%;
+
+    /* Accents - Aurora Colors */
+    --primary: 240 67% 94%;
+    --primary-foreground: 240 10% 10%;
+
+    --secondary: 120 100% 80%;
+    --secondary-foreground: 120 50% 10%;
+
+    --accent: 7 91% 73%;
+    --accent-foreground: 7 50% 10%;
+
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 55%;
+
+    --destructive: 7 91% 73%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 100% / 0.08;
+    --input: 0 0% 100% / 0.05;
+    --ring: 240 67% 94%;
+
+    --radius: 1.5rem;
+
+    /* Custom tokens */
+    --lavender: 240 67% 94%;
+    --mint: 120 100% 80%;
+    --coral: 7 91% 73%;
+    --void-deep: 240 10% 1.5%;
+    --void-surface: 240 8% 4%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--lavender)) 0%, hsl(var(--mint)) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(var(--lavender)) 0%, hsl(var(--coral)) 100%);
+    --gradient-glass: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+
+    /* Shadows */
+    --shadow-glow: 0 0 40px hsl(var(--lavender) / 0.2);
+    --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+    /* Sidebar */
+    --sidebar-background: 240 8% 4%;
+    --sidebar-foreground: 0 0% 93%;
+    --sidebar-primary: 240 67% 94%;
+    --sidebar-primary-foreground: 240 10% 10%;
+    --sidebar-accent: 240 5% 15%;
+    --sidebar-accent-foreground: 0 0% 93%;
+    --sidebar-border: 0 0% 100% / 0.08;
+    --sidebar-ring: 240 67% 94%;
+  }
+
+  .dark {
+    /* Same as root - this is a dark-first design */
+    --background: 240 10% 1.5%;
+    --foreground: 0 0% 93%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  /* Frost Glass Effect */
+  .glass {
+    @apply relative;
+    background: var(--gradient-glass);
+    backdrop-filter: blur(24px) saturate(120%);
+    -webkit-backdrop-filter: blur(24px) saturate(120%);
+    border: 1px solid hsl(var(--glass-stroke));
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass:hover {
+    border-color: hsl(var(--glass-hover));
+  }
+
+  /* Gradient Text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  .text-gradient-accent {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-accent);
+  }
+
+  /* Aurora Glow Effect */
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .glow-text {
+    text-shadow: 0 0 40px hsl(var(--lavender) / 0.3);
+  }
+
+  /* Floating Capsule Navigation */
+  .capsule {
+    @apply glass rounded-full px-6 py-3;
+  }
+
+  /* Breathing Animation for CTA */
+  .breathe {
+    animation: breathe 3s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+  }
+
+  /* Flux Field Background */
+  .flux-field {
+    @apply fixed inset-0 -z-10 overflow-hidden;
+    background: radial-gradient(ellipse at 30% 20%, hsl(var(--lavender) / 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, hsl(var(--mint) / 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, hsl(var(--coral) / 0.04) 0%, transparent 50%),
+                hsl(var(--void-deep));
+  }
+
+  /* Monospace for numbers */
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+  }
+
+  /* Pill button gradient */
+  .btn-gradient {
+    background: var(--gradient-primary);
+    @apply text-primary-foreground font-medium;
+  }
+
+  .btn-gradient-accent {
+    background: var(--gradient-accent);
+    @apply text-primary-foreground font-medium;
+  }
+
+  /* Status indicators */
+  .status-active {
+    @apply w-2 h-2 rounded-full bg-secondary animate-pulse;
+  }
+
+  .status-idle {
+    @apply w-2 h-2 rounded-full bg-muted-foreground;
+  }
+
+  /* Magnetic hover effect for cards */
+  .magnetic {
+    @apply transition-transform duration-300;
+  }
+
+  .magnetic:hover {
+    transform: perspective(1000px) rotateX(2deg) rotateY(-2deg) scale(1.01);
+  }
+}
+
+@layer utilities {
+  /* Typography utilities */
+  .text-display-xl {
+    @apply text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tighter;
+    letter-spacing: -0.02em;
+  }
+
+  .text-display-l {
+    @apply text-4xl md:text-5xl font-medium tracking-tight;
+    letter-spacing: -0.015em;
+  }
+
+  .text-heading-m {
+    @apply text-2xl md:text-3xl font-medium tracking-tight;
+    letter-spacing: -0.01em;
+  }
+
+  .text-body-l {
+    @apply text-lg font-normal;
+    line-height: 1.6;
+  }
+
+  .text-body-m {
+    @apply text-base font-normal;
+    line-height: 1.5;
+  }
+
+  .text-caption {
+    @apply text-xs font-medium uppercase tracking-widest;
+    letter-spacing: 0.04em;
+  }
+
+  /* Animation delays */
+  .delay-100 { animation-delay: 100ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+  .delay-400 { animation-delay: 400ms; }
+  .delay-500 { animation-delay: 500ms; }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
