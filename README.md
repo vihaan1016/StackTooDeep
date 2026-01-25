@@ -8,8 +8,91 @@
 
 ---
 
+## Quick Start (5 minutes)
+
+### Prerequisites
+
+- Node.js 18+
+- npm or yarn
+- MongoDB instance running locally or remote
+- Ethereum wallet with test tokens
+- Gemini API key
+
+### Installation & Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/flux-compute.git
+cd flux-compute
+
+# 2. Install backend dependencies
+cd backend
+npm install
+
+# 3. Configure backend environment
+cp .env.example .env
+# Edit .env with your configuration (see Configuration section below)
+
+# 4. Start backend server
+npm run dev
+# Server will start on http://localhost:3000
+
+# 5. In a new terminal, install frontend dependencies
+cd ../frontend
+npm install
+
+# 6. Start frontend development server
+npm run dev
+# Frontend will start on http://localhost:5173 (or your configured port)
+```
+
+### Configuration
+
+Create a `.env` file in the `backend` directory:
+
+```env
+# Server
+PORT=3000
+CORS_ORIGIN=http://localhost:5173
+
+# MongoDB
+MONGO_URL=mongodb://localhost:27017/flux-compute
+
+# AI Service
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Blockchain (Sepolia)
+FLUX_TOKEN_ADDRESS=0xE16224cF844c9F1750487004FDe10C5c943BD948
+AI_PAYMENT_PROTOCOL_ADDRESS=0x4A8B4AE5f4Af3b895b0B28117E4dA424CF96EF28
+BACKEND_WALLET=0x3a57622F51356fB925081A6D048BAA3eC35D9bAe
+
+# ⚠️ Development-only private key (not a security leak)
+# This is a test/dev account required for local development
+BACKEND_WALLET_PRIVATE_KEY=d8dfd0f29eb7b26bf3171d3bbee542f6702310e821da825847177efdec256eb8
+```
+
+### Running the Application
+
+**Backend (Terminal 1):**
+```bash
+cd backend
+npm run dev      # Development mode with hot reload
+# npm start      # Production mode
+```
+Server runs on `http://localhost:3000`
+
+**Frontend (Terminal 2):**
+```bash
+cd frontend
+npm run dev      # Development mode
+```
+Frontend runs on `http://localhost:5173`
+
+---
+
 ## Table of Contents
 
+- [Quick Start](#quick-start-5-minutes)
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [Payment Models](#payment-models)
@@ -18,7 +101,6 @@
 - [User Journey](#user-journey)
 - [Tech Stack](#tech-stack)
 - [Deep Dive: Capabilities](#deep-dive-capabilities)
-- [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Screenshots](#screenshots)
 
@@ -326,85 +408,6 @@ For the allocation model:
 - Supports multiple Gemini models (auto-fallback)
 - Context-aware conversations (maintains chat history)
 - Token usage tracking per message
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- MongoDB instance
-- Ethereum wallet with FLUX tokens
-- Gemini API key
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/your-repo/flux-compute.git
-cd flux-compute
-
-# Install backend dependencies
-cd backend
-npm install
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your configuration
-
-# Start the server
-npm run dev
-```
-
-### Running Locally
-
-```bash
-# Development mode (with hot reload)
-npm run dev
-
-# Production mode
-npm start
-```
-
-The server will start on `http://localhost:3000` (or your configured PORT).
-
----
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the `backend` directory:
-
-```env
-# Server
-PORT=3000
-CORS_ORIGIN=*
-
-# MongoDB
-MONGO_URL=mongodb://localhost:27017
-
-# AI Service
-GEMINI_API_KEY=your_gemini_api_key
-
-# Blockchain (Sepolia)
-FLUX_TOKEN_ADDRESS=0x...
-AI_PAYMENT_PROTOCOL_ADDRESS=0x...
-BACKEND_WALLET=0x...
-BACKEND_WALLET_PRIVATE_KEY=0x...
-```
-
-| Variable | Description |
-|----------|-------------|
-| `PORT` | Server port (default: 3000) |
-| `CORS_ORIGIN` | Allowed CORS origins |
-| `MONGO_URL` | MongoDB connection string |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `FLUX_TOKEN_ADDRESS` | Deployed FLUX token contract |
-| `AI_PAYMENT_PROTOCOL_ADDRESS` | Payment protocol contract |
-| `BACKEND_WALLET` | Backend wallet address |
-| `BACKEND_WALLET_PRIVATE_KEY` | Backend wallet private key |
 
 ---
 
