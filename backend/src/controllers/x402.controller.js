@@ -38,6 +38,7 @@ export async function chat(req, res) {
                     }
                 })
             }
+            const v = await verifyPaymentTx(paymentTxHash, fluxRequired)
             if (!v.verified) return error(res, 400, "Payment verification failed")
 
         } else {
