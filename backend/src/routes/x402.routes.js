@@ -1,10 +1,11 @@
 import { Router } from "express"
 import * as ctrl from "../controllers/x402.controller.js"
+import { x402Middleware } from "../middleware/x402.js"
 
 const router = Router()
 
 // X402 routes
-router.post("/chat", ctrl.chat)
+router.post("/chat", x402Middleware, ctrl.chat)
 router.get("/projects", ctrl.getUserProjects)
 router.post("/projects", ctrl.createProject)
 router.get("/projects/:id", ctrl.getProject)

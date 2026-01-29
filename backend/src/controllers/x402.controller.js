@@ -4,7 +4,8 @@ import { estimateRequestTokens, generateAIResponse, estimateTotalTokens } from "
 import { formatUnits } from "viem"
 import {
     verifyPaymentTx, burnFlux, refundFlux, getBackendWallet, createSessionForUser,
-    chargeForUsage, getSessionInfo, topupSessionForUser, closeSession, getConversionSync
+    chargeForUsage, getSessionInfo, topupSessionForUser, closeSession, getConversionSync,
+    processGaslessPayment
 } from "../utils/chain.js"
 
 function error(res, status, msg) {
@@ -13,34 +14,19 @@ function error(res, status, msg) {
 
 export async function chat(req, res) {
     try {
-        const { projectId, prompt, paymentTxHash } = req.body
+        const { projectId, prompt } = req.body
         if (projectId === undefined) return error(res, 400, "projectId required")
         if (!prompt?.trim()) return error(res, 400, "prompt required")
 
         const project = await Project.findOne({ projectId })
         if (!project) return error(res, 404, "Project not found")
 
-        // Paper model pays for estimated TOTAL usage (Input + Buffer).
-        // Allocation model pays for ACTUAL usage.
         const estimatedTokens = estimateTotalTokens(prompt)
         const fluxRequired = getConversionSync(estimatedTokens)
-        let txHash
+        let txHash = req.paymentTxHash
 
         if (project.paymentModel === "paper") {
-            if (!paymentTxHash) {
-                return res.status(402).json({
-                    success: false, error: "Payment Required",
-                    payment: {
-                        fluxRequired: fluxRequired.toString(),
-                        estimatedTokens,
-                        recipient: getBackendWallet(),
-                        method: "transfer"
-                    }
-                })
-            }
-            const v = await verifyPaymentTx(paymentTxHash, fluxRequired)
-            if (!v.verified) return error(res, 400, "Payment verification failed")
-
+            // Verified by middleware
         } else {
             if (!project.sessionId) return error(res, 400, "No session. Create one first.")
             const session = await getSessionInfo(project.sessionId)

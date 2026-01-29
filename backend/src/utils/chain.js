@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, http, parseAbi, parseUnits, formatUnits } from "viem"
 import { sepolia } from "viem/chains"
 import { privateKeyToAccount } from "viem/accounts"
+import { GasSpend } from "../models/gasSpend.model.js"
 import dotenv from "dotenv"
 
 dotenv.config()
@@ -10,6 +11,9 @@ const PROTOCOL_ADDR = process.env.AI_PAYMENT_PROTOCOL_ADDRESS
 const BACKEND_WALLET = process.env.BACKEND_WALLET
 const PRIVATE_KEY = process.env.BACKEND_WALLET_PRIVATE_KEY
 const RATE = 100n
+
+const MAX_GAS_GWEI = 50n // 50 Gwei max base fee
+const DAILY_GAS_LIMIT_ETH = parseUnits("0.1", 18) // 0.1 ETH daily limit
 
 const publicClient = createPublicClient({ chain: sepolia, transport: http() })
 
@@ -23,6 +27,7 @@ const FLUX_ABI = parseAbi([
     "function balanceOf(address) view returns (uint256)",
     "function transfer(address, uint256) returns (bool)",
     "function burn(uint256)",
+    "function receiveWithAuthorization(address, address, uint256, uint256, uint256, bytes32, uint8, bytes32, bytes32)",
     "event Transfer(address indexed, address indexed, uint256)"
 ])
 
@@ -69,6 +74,46 @@ function isLive() {
 
 export function getBackendWallet() {
     return BACKEND_WALLET || "0x0000000000000000000000000000000000000000"
+}
+
+export async function checkGasHealth() {
+    if (!isLive()) return { healthy: true }
+
+    // 1. Check Oracle (Instant Gas Price)
+    try {
+        const gasPrice = await publicClient.getGasPrice()
+        const maxFeeWei = MAX_GAS_GWEI * (10n ** 9n)
+
+        if (gasPrice > maxFeeWei) {
+            return {
+                healthy: false,
+                reason: `Gas price flush! ${formatUnits(gasPrice, 9)} gwei > ${MAX_GAS_GWEI} gwei`
+            }
+        }
+
+        // 2. Check Daily Spend Limit
+        const today = new Date().toISOString().split('T')[0]
+        const todaySpends = await GasSpend.find({ date: today })
+
+        let totalSpent = 0n
+        for (const s of todaySpends) {
+            totalSpent += BigInt(s.amountWei)
+        }
+
+        if (totalSpent > DAILY_GAS_LIMIT_ETH) {
+            return {
+                healthy: false,
+                reason: `Daily gas limit reached (${formatUnits(totalSpent, 18)} ETH)`
+            }
+        }
+
+        return { healthy: true }
+
+    } catch (e) {
+        console.error("Gas health check failed:", e)
+        // Fail open or closed? Closed for security.
+        return { healthy: false, reason: "Gas check error" }
+    }
 }
 
 export function getConversionSync(aiTokens) {
@@ -121,6 +166,63 @@ export async function refundFlux(userAddress, amount) {
         })
         await publicClient.waitForTransactionReceipt({ hash })
         return { txHash: hash }
+    })
+}
+
+export async function processGaslessPayment(signatureData) {
+    if (!isLive()) return { verified: true, txHash: `0xmock${Date.now().toString(16)}` }
+
+    const { from, to, value, validAfter, validBefore, nonce, v, r, s } = signatureData
+
+    // Verify recipient is backend wallet to prevent burning tokens sent to randoms
+    if (to.toLowerCase() !== BACKEND_WALLET.toLowerCase()) {
+        return { verified: false, error: "Invalid recipient" }
+    }
+
+    return txLock.runExclusive(async () => {
+        // Double Check Gas Health inside lock (optional but safer)
+        const health = await checkGasHealth()
+        if (!health.healthy) return { verified: false, error: health.reason }
+
+        try {
+            const hash = await walletClient.writeContract({
+                address: FLUX_ADDR,
+                abi: FLUX_ABI,
+                functionName: "receiveWithAuthorization",
+                args: [
+                    from,
+                    to,
+                    BigInt(value),
+                    BigInt(validAfter),
+                    BigInt(validBefore),
+                    nonce,
+                    v,
+                    r,
+                    s
+                ]
+            })
+            const receipt = await publicClient.waitForTransactionReceipt({ hash })
+            if (receipt.status !== "success") return { verified: false, error: "TX failed on-chain" }
+
+            // Record Gas Spend
+            const gasUsed = receipt.gasUsed * receipt.effectiveGasPrice
+            const today = new Date().toISOString().split('T')[0]
+
+            try {
+                await GasSpend.create({
+                    date: today,
+                    amountWei: gasUsed.toString(),
+                    txHash: hash
+                })
+            } catch (err) {
+                console.error("Failed to log gas spend:", err)
+            }
+
+            return { verified: true, txHash: hash }
+        } catch (e) {
+            console.error("Gasless payment failed:", e)
+            return { verified: false, error: e.message || "Execution failed" }
+        }
     })
 }
 

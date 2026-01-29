@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useWallet } from '../contexts/WalletContext';
-import { useWriteContract, usePublicClient } from 'wagmi';
+import { useWriteContract, usePublicClient, useSignTypedData } from 'wagmi';
 import { parseEther, formatEther, maxUint256, type Address } from 'viem';
 import { FLUX_TOKEN_ADDRESS, ERC20_ABI, AI_PAYMENT_PROTOCOL_ADDRESS } from '../config/contracts';
 import { toast } from 'sonner';
@@ -34,6 +34,7 @@ export function useCompute() {
         projectId: string;
         method?: 'transfer' | 'topup';
         sessionId?: number;
+        nonce?: string;
     } | null>(null);
 
     const { writeContractAsync } = useWriteContract();
@@ -154,41 +155,75 @@ export function useCompute() {
         return JSON.parse(localStorage.getItem('flux_projects') || '[]');
     }, []);
 
+    const { signTypedDataAsync } = useSignTypedData();
+
     // Send Message
-    const sendMessage = useCallback(async (projectId: string, prompt: string, paymentTxHash?: string, skipUserMessage: boolean = false) => {
+    const sendMessage = useCallback(async (projectId: string, prompt: string, paymentTxHash?: string, skipUserMessage: boolean = false, paymentSignature?: any) => {
         setIsChatting(true);
-        if (!paymentTxHash) setProcessingStatus('generating');
+        if (!paymentTxHash && !paymentSignature) setProcessingStatus('generating');
 
         // Optimistically add user message
         if (!skipUserMessage) {
             setMessages(prev => [
                 ...prev,
-                { role: 'user', content: prompt, txHash: paymentTxHash }
+                { role: 'user', content: prompt, txHash: paymentTxHash || (paymentSignature ? "Gasless" : undefined) }
             ]);
         }
 
         try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (paymentSignature) {
+                headers['X-Payment-Signature'] = JSON.stringify(paymentSignature);
+            }
+
             const res = await fetch('/api/x402/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     projectId,
-                    prompt,
-                    paymentTxHash
+                    prompt
                 }),
             });
 
             if (res.status === 402) {
-                const errorData = await res.json();
-                const { payment } = errorData;
+                const authHeader = res.headers.get('WWW-Authenticate');
+                let fluxRequiredStr = "0";
+                let recipient = null;
+                let nonce = null;
+                let method: 'transfer' | 'topup' = 'transfer';
+                let sessionId: number | undefined = undefined;
+                let estimatedTokens = 0;
+
+                if (authHeader && authHeader.startsWith('x402')) {
+                    // True x402 Flow (Paper)
+                    const amountMatch = authHeader.match(/amount="([^"]+)"/);
+                    const recipientMatch = authHeader.match(/recipient="([^"]+)"/);
+                    const nonceMatch = authHeader.match(/nonce="([^"]+)"/);
+
+                    if (amountMatch) fluxRequiredStr = formatEther(BigInt(amountMatch[1]));
+                    if (recipientMatch) recipient = recipientMatch[1];
+                    if (nonceMatch) nonce = nonceMatch[1];
+                } else {
+                    // Allocation Flow (Body fallback)
+                    const errorData = await res.json();
+                    if (errorData.payment) {
+                        fluxRequiredStr = formatEther(BigInt(errorData.payment.fluxRequired));
+                        recipient = errorData.payment.recipient;
+                        method = errorData.payment.method;
+                        sessionId = errorData.payment.sessionId;
+                        estimatedTokens = errorData.payment.estimatedTokens;
+                    }
+                }
+
                 setPaymentRequired({
-                    fluxRequired: formatEther(BigInt(payment.fluxRequired)),
-                    recipient: payment.recipient || null,
-                    estimatedTokens: payment.estimatedTokens,
+                    fluxRequired: fluxRequiredStr,
+                    recipient: recipient || null,
+                    estimatedTokens: estimatedTokens,
                     pendingPrompt: prompt,
                     projectId,
-                    method: payment.method || 'transfer',
-                    sessionId: payment.sessionId
+                    method: method,
+                    sessionId: sessionId,
+                    nonce: nonce || undefined
                 });
                 setIsChatting(false);
                 return;
@@ -263,21 +298,74 @@ export function useCompute() {
                 toast.success("Session top-up successful!");
 
             } else {
-                // 2. Transfer Flow (Paper Model) - Default
+                // 2. Transfer Flow (Paper Model) - Gasless via EIP-3009
                 if (!paymentRequired.recipient) throw new Error("Recipient required for transfer");
 
-                // @ts-ignore
-                hash = await writeContractAsync({
-                    address: FLUX_TOKEN_ADDRESS,
-                    abi: ERC20_ABI,
-                    functionName: 'transfer',
-                    args: [paymentRequired.recipient as Address, parseEther(paymentRequired.fluxRequired)],
+                // Check nonce
+                const nonce = paymentRequired.nonce || '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                    .map(b => b.toString(16).padStart(2, '0')).join('');
+
+                const validAfter = 0;
+                const validBefore = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+                const value = parseEther(paymentRequired.fluxRequired);
+
+                const domain = {
+                    name: 'Flux',
+                    version: '1',
+                    chainId: 11155111, // Sepolia
+                    verifyingContract: FLUX_TOKEN_ADDRESS as Address
+                };
+
+                const types = {
+                    TransferWithAuthorization: [
+                        { name: 'from', type: 'address' },
+                        { name: 'to', type: 'address' },
+                        { name: 'value', type: 'uint256' },
+                        { name: 'validAfter', type: 'uint256' },
+                        { name: 'validBefore', type: 'uint256' },
+                        { name: 'nonce', type: 'bytes32' }
+                    ]
+                };
+
+                const message = {
+                    from: walletAddress as Address,
+                    to: paymentRequired.recipient as Address,
+                    value,
+                    validAfter: BigInt(validAfter),
+                    validBefore: BigInt(validBefore),
+                    nonce: nonce as `0x${string}`
+                };
+
+                toast.info("Please sign the gasless payment request...");
+                const signature = await signTypedDataAsync({
+                    domain,
+                    types,
+                    primaryType: 'TransferWithAuthorization',
+                    message,
                     account: walletAddress as Address
                 });
-                toast.info("Payment broadcasted. Waiting for confirmation...");
-                // Wait for Receipt
-                await publicClient.waitForTransactionReceipt({ hash });
-                toast.success("Payment confirmed!");
+
+                // Parse signature
+                const r = '0x' + signature.substring(2, 66);
+                const s = '0x' + signature.substring(66, 130);
+                const v = parseInt(signature.substring(130, 132), 16);
+
+                const paymentSignature = {
+                    from: walletAddress,
+                    to: paymentRequired.recipient,
+                    value: value.toString(),
+                    validAfter: validAfter.toString(),
+                    validBefore: validBefore.toString(),
+                    nonce,
+                    v, r, s
+                };
+
+                toast.info("Signature captured! Verifying...");
+
+                // Retry Message with Signature
+                setProcessingStatus('generating');
+                await sendMessage(paymentRequired.projectId, paymentRequired.pendingPrompt, undefined, true, paymentSignature);
+                return; // Exit here effectively
             }
 
             setProcessingStatus('verifying'); // Or generating directly?
@@ -288,6 +376,7 @@ export function useCompute() {
             // because it checks session balance. But we can pass it for logging.
             // Actually, for Allocation model, the chat endpoint doesn't use `paymentTxHash` in the body to verify payment.
             // It checks the session balance. So `paymentTxHash` is optional or unused for allocation retry.
+            setProcessingStatus('generating');
             setProcessingStatus('generating');
             await sendMessage(paymentRequired.projectId, paymentRequired.pendingPrompt, hash, true);
 
